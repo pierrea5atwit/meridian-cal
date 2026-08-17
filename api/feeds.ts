@@ -1,7 +1,7 @@
 import ical from "node-ical";
 import { createHash } from "node:crypto";
 import { sendJson, query, safeId, type Req, type Res } from "./_http";
-import { kv } from "./_redis";
+import { kv } from "./_kv";
 import { loadSpace, type Feed } from "./_store";
 
 const RAW_TTL_SECONDS = 15 * 60; // re-fetch each feed at most every 15 min
