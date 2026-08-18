@@ -1,5 +1,5 @@
-import { readJson, sendJson, query, safeId, type Req, type Res } from "./_http";
-import { loadSpace, saveSpace, type CalendarSpace } from "./_store";
+import { readJson, sendJson, query, safeId, type Req, type Res } from "./_http.js";
+import { loadSpace, saveSpace, type CalendarSpace } from "./_store.js";
 
 // GET  /api/space?id=<slug>  -> current space (feeds config + personal events)
 // PUT  /api/space?id=<slug>  -> replace the whole space, returns the saved copy

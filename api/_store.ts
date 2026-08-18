@@ -1,4 +1,4 @@
-import { kv } from "./_kv";
+import { kv } from "./_kv.js";
 
 // ---- Shared domain shapes (mirrored in src/types.ts for the frontend) ----
 
