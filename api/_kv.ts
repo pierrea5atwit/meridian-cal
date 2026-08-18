@@ -1,20 +1,19 @@
-import { createClient } from "@supabase/supabase-js";
+import postgres from "postgres";
 
 // A tiny key/value surface so the rest of the code never cares whether it is
-// talking to Supabase or the in-memory dev fallback. Backed by a single
-// `kv(key text primary key, value text, expires_at timestamptz)` table.
+// talking to Postgres (Supabase) or the in-memory dev fallback. The table is
+// created on first use, so there is no manual migration step.
 export interface KV {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   setex(key: string, ttlSeconds: number, value: string): Promise<void>;
 }
 
-const TABLE = "kv";
 let client: KV | null = null;
 
 function makeMemoryKV(): KV {
   // Process-local map. Fine for `vite dev` (single process); never used when
-  // Supabase env is set, i.e. never in production.
+  // POSTGRES_URL is set, i.e. never in production.
   const store = new Map<string, { value: string; expires: number }>();
   const live = (k: string) => {
     const e = store.get(k);
@@ -38,41 +37,57 @@ function makeMemoryKV(): KV {
   };
 }
 
-function makeSupabaseKV(url: string, serviceKey: string): KV {
-  // Service-role key: server-side only, bypasses RLS. Never ship to the client.
-  const sb = createClient(url, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+function makePostgresKV(url: string): KV {
+  // prepare:false is required for Supabase's transaction pooler; max:1 keeps a
+  // serverless invocation from opening a fan-out of connections.
+  const sql = postgres(url, { prepare: false, max: 1, idle_timeout: 20 });
+
+  let ready: Promise<void> | null = null;
+  const ensureTable = () =>
+    (ready ??= (async () => {
+      await sql`create table if not exists kv (
+        key text primary key,
+        value text not null,
+        expires_at timestamptz
+      )`;
+      // Block anon PostgREST access; our direct (owner) connection bypasses RLS.
+      await sql`alter table kv enable row level security`;
+    })());
+
   return {
     async get(key) {
-      const { data, error } = await sb
-        .from(TABLE)
-        .select("value, expires_at")
-        .eq("key", key)
-        .maybeSingle();
-      if (error || !data) return null;
-      if (data.expires_at && new Date(data.expires_at).getTime() < Date.now()) {
+      await ensureTable();
+      const rows = await sql<{ value: string; expires_at: Date | null }[]>`
+        select value, expires_at from kv where key = ${key}`;
+      const row = rows[0];
+      if (!row) return null;
+      if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) {
         return null;
       }
-      return data.value as string;
+      return row.value;
     },
     async set(key, value) {
-      await sb.from(TABLE).upsert({ key, value, expires_at: null });
+      await ensureTable();
+      await sql`
+        insert into kv (key, value, expires_at) values (${key}, ${value}, null)
+        on conflict (key) do update set value = excluded.value, expires_at = null`;
     },
     async setex(key, ttl, value) {
-      const expires_at = new Date(Date.now() + ttl * 1000).toISOString();
-      await sb.from(TABLE).upsert({ key, value, expires_at });
+      await ensureTable();
+      const expires = new Date(Date.now() + ttl * 1000).toISOString();
+      await sql`
+        insert into kv (key, value, expires_at) values (${key}, ${value}, ${expires})
+        on conflict (key) do update set value = excluded.value, expires_at = excluded.expires_at`;
     },
   };
 }
 
 export function kv(): KV {
   if (client) return client;
-  const url = process.env.SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  client = url && serviceKey ? makeSupabaseKV(url, serviceKey) : makeMemoryKV();
-  if (!url || !serviceKey) {
-    console.warn("[meridian] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — using in-memory store (dev only).");
+  const url = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+  client = url ? makePostgresKV(url) : makeMemoryKV();
+  if (!url) {
+    console.warn("[meridian] POSTGRES_URL not set — using in-memory store (dev only).");
   }
   return client;
 }
