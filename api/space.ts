@@ -27,6 +27,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
       feeds: Array.isArray(incoming.feeds) ? incoming.feeds : [],
       events: Array.isArray(incoming.events) ? incoming.events : [],
       categories: Array.isArray(incoming.categories) ? incoming.categories : [],
+      connections: Array.isArray(incoming.connections) ? incoming.connections : [],
       updatedAt: 0,
     });
     sendJson(res, 200, saved);

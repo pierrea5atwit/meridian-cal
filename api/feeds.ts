@@ -2,7 +2,15 @@ import ical from "node-ical";
 import { createHash } from "node:crypto";
 import { sendJson, query, safeId, type Req, type Res } from "./_http.js";
 import { kv } from "./_kv.js";
-import { loadSpace, type Feed } from "./_store.js";
+import {
+  loadSpace,
+  loadToken,
+  saveToken,
+  getCachedAccessToken,
+  cacheAccessToken,
+  type Feed,
+} from "./_store.js";
+import { fetchProviderEvents, refreshAccessToken } from "./_oauth.js";
 
 const RAW_TTL_SECONDS = 15 * 60; // re-fetch each feed at most every 15 min
 
@@ -146,6 +154,48 @@ export default async function handler(req: Req, res: Res): Promise<void> {
         }
       } catch (err) {
         errors.push({ feed: feed.name, message: String(err) });
+      }
+    }),
+  );
+
+  // OAuth-connected calendars (Outlook / Google): refresh a token (cached),
+  // then pull events. Their APIs already expand recurring series in-window.
+  const connections = space.connections.filter((c) => c.enabled);
+  await Promise.all(
+    connections.map(async (conn) => {
+      try {
+        const stored = await loadToken(id, conn.id);
+        if (!stored) {
+          errors.push({ feed: conn.email, message: "not connected — reconnect" });
+          return;
+        }
+        let accessToken = await getCachedAccessToken(id, conn.id);
+        if (!accessToken) {
+          const refreshed = await refreshAccessToken(conn.provider, stored.refreshToken);
+          accessToken = refreshed.access_token;
+          await cacheAccessToken(id, conn.id, accessToken, (refreshed.expires_in ?? 3600) - 60);
+          // Providers may rotate the refresh token; persist the newest.
+          if (refreshed.refresh_token && refreshed.refresh_token !== stored.refreshToken) {
+            await saveToken(id, conn.id, { ...stored, refreshToken: refreshed.refresh_token });
+          }
+        }
+        const raw = await fetchProviderEvents(conn.provider, accessToken, from, to);
+        for (const ev of raw) {
+          events.push({
+            id: `${conn.id}:${ev.uid}`,
+            source: conn.id,
+            sourceName: conn.email,
+            title: ev.title,
+            start: ev.start,
+            end: ev.end,
+            allDay: ev.allDay,
+            category: conn.category,
+            color: conn.color,
+            location: ev.location,
+          });
+        }
+      } catch (err) {
+        errors.push({ feed: conn.email, message: `sync failed: ${String(err).slice(0, 120)}` });
       }
     }),
   );

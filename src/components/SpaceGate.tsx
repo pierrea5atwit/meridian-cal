@@ -13,12 +13,12 @@ export default function SpaceGate({
   return (
     <div className="gate">
       <div className="gate-card">
-        <div className="brand big">
-          <span className="dot" /> Meridian
+        <div className="wordmark">
+          <span className="logo" /> Meridian
         </div>
-        <p className="muted">
-          Your central calendar. Pick a space name — bookmark the URL and open it on
-          any device to see the same calendar.
+        <p>
+          Your calendars, in one place. Pick a name for your space — bookmark the URL
+          and open it on any device to see the same calendar.
         </p>
         <form
           onSubmit={(e) => {
@@ -32,12 +32,12 @@ export default function SpaceGate({
             value={value}
             onChange={(e) => setValue(e.target.value)}
           />
-          <button type="submit" disabled={!clean}>
-            Open calendar
+          <button className="btn-primary" type="submit" disabled={!clean}>
+            Open
           </button>
         </form>
         {clean && (
-          <p className="muted small">
+          <p className="small" style={{ margin: "12px 0 0" }}>
             Opens <code>#{clean}</code>
           </p>
         )}

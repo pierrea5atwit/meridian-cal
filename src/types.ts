@@ -32,10 +32,23 @@ export interface Category {
   color: string;
 }
 
+export type Provider = "microsoft" | "google";
+
+export interface Connection {
+  id: string;
+  provider: Provider;
+  email: string;
+  color: string;
+  category: string;
+  enabled: boolean;
+  connectedAt: number;
+}
+
 export interface CalendarSpace {
   feeds: Feed[];
   events: PersonalEvent[];
   categories: Category[];
+  connections: Connection[];
   updatedAt: number;
 }
 

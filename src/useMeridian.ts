@@ -13,7 +13,9 @@ export interface MeridianState {
   save: (mutate: (draft: CalendarSpace) => CalendarSpace) => Promise<void>;
   upsertEvent: (ev: PersonalEvent) => Promise<void>;
   deleteEvent: (id: string) => Promise<void>;
+  disconnect: (connId: string) => Promise<void>;
   reloadFeeds: () => void;
+  reloadSpace: () => void;
 }
 
 /** Month-bucket key so we only re-fetch feeds when the visible month changes. */
@@ -29,10 +31,11 @@ export function useMeridian(spaceId: string, anchor: Date): MeridianState {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedNonce, setFeedNonce] = useState(0);
+  const [spaceNonce, setSpaceNonce] = useState(0);
 
   const mKey = monthKey(anchor);
 
-  // Load the space whenever the id changes.
+  // Load the space whenever the id changes (or a manual reload is requested).
   useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -44,13 +47,15 @@ export function useMeridian(spaceId: string, anchor: Date): MeridianState {
     return () => {
       alive = false;
     };
-  }, [spaceId]);
+  }, [spaceId, spaceNonce]);
 
-  // Fetch feed occurrences for a padded window around the visible month.
-  const feedCount = space?.feeds.filter((f) => f.enabled).length ?? 0;
+  // Fetch external events for a padded window around the visible month.
+  const enabledFeeds = space?.feeds.filter((f) => f.enabled).length ?? 0;
+  const enabledConns = space?.connections.filter((c) => c.enabled).length ?? 0;
+  const sourceCount = enabledFeeds + enabledConns;
   useEffect(() => {
     if (!space) return;
-    if (feedCount === 0) {
+    if (sourceCount === 0) {
       setFeedEvents([]);
       setFeedErrors([]);
       return;
@@ -58,7 +63,7 @@ export function useMeridian(spaceId: string, anchor: Date): MeridianState {
     let alive = true;
     setRefreshing(true);
     const from = addDays(startOfMonth(anchor), -7);
-    const to = addDays(endOfMonth(anchor), 7);
+    const to = addDays(endOfMonth(anchor), 28);
     getFeeds(spaceId, from, to)
       .then((r) => {
         if (!alive) return;
@@ -71,7 +76,7 @@ export function useMeridian(spaceId: string, anchor: Date): MeridianState {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spaceId, mKey, feedCount, feedNonce]);
+  }, [spaceId, mKey, sourceCount, feedNonce]);
 
   // Serialize writes so concurrent edits don't clobber each other.
   const writeChain = useRef<Promise<unknown>>(Promise.resolve());
@@ -80,7 +85,7 @@ export function useMeridian(spaceId: string, anchor: Date): MeridianState {
     (mutate: (draft: CalendarSpace) => CalendarSpace) => {
       const run = writeChain.current.then(async () => {
         const base =
-          space ?? { feeds: [], events: [], categories: [], updatedAt: 0 };
+          space ?? { feeds: [], events: [], categories: [], connections: [], updatedAt: 0 };
         const next = mutate(structuredClone(base));
         setSpace(next); // optimistic
         try {
@@ -123,7 +128,23 @@ export function useMeridian(spaceId: string, anchor: Date): MeridianState {
     [save],
   );
 
+  const disconnect = useCallback(
+    async (connId: string) => {
+      try {
+        await fetch(
+          `/api/disconnect?id=${encodeURIComponent(spaceId)}&conn=${encodeURIComponent(connId)}`,
+          { method: "POST" },
+        );
+      } catch (e) {
+        setError(String(e));
+      }
+      setSpace((s) => (s ? { ...s, connections: s.connections.filter((c) => c.id !== connId) } : s));
+    },
+    [spaceId],
+  );
+
   const reloadFeeds = useCallback(() => setFeedNonce((n) => n + 1), []);
+  const reloadSpace = useCallback(() => setSpaceNonce((n) => n + 1), []);
 
   return useMemo(
     () => ({
@@ -136,8 +157,10 @@ export function useMeridian(spaceId: string, anchor: Date): MeridianState {
       save,
       upsertEvent,
       deleteEvent,
+      disconnect,
       reloadFeeds,
+      reloadSpace,
     }),
-    [space, feedEvents, feedErrors, loading, refreshing, error, save, upsertEvent, deleteEvent, reloadFeeds],
+    [space, feedEvents, feedErrors, loading, refreshing, error, save, upsertEvent, deleteEvent, disconnect, reloadFeeds, reloadSpace],
   );
 }

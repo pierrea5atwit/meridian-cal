@@ -52,7 +52,7 @@ export default function MonthView({
                     <span className="ev-dot" style={{ background: e.color }} />
                     <span className="ev-label">
                       {!e.allDay && (
-                        <span className="ev-t">
+                        <span className="ev-t-time">
                           {e.start.toLocaleTimeString(undefined, { hour: "numeric" })}{" "}
                         </span>
                       )}

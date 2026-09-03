@@ -164,8 +164,8 @@ export default function EventModal({
             <button className="link-danger" onClick={() => onDelete(ev.id)}>Delete</button>
           )}
           <div className="spacer" />
-          <button className="ghost" onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={!valid || saving} onClick={submit}>
+          <button className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={!valid || saving} onClick={submit}>
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
